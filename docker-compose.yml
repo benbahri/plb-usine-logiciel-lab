@@ -1,0 +1,93 @@
+# Environnement de lab sirh-export (A02) + hôte cible simulé (A12)
+#
+# Remplace Artifactory (JCR sans licence : bloque la création de tout dépôt)
+# par Nexus OSS, qui couvre Maven (A04) et Docker (A09, A10)
+# sans licence. Ajoute GitLab CE + un runner partagé (A08) et Jenkins (A11).
+#
+# Démarrage : voir lab/README.md (ordre, RAM nécessaire, script de vérification).
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: sirh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: sirh
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  # Dépôts Maven (hosted releases/snapshots + proxy central, créés par défaut)
+  # et Docker (hosted, à créer : A09/A10). Remplace Artifactory.
+  nexus:
+    image: ${NEXUS_IMAGE:-sonatype/nexus3:3.70.1}
+    environment:
+      INSTALL4J_ADD_VM_PARAMS: -Xms1200m -Xmx1200m
+    ports:
+      - "8081:8081"   # UI + API + dépôts Maven
+      - "8083:8083"   # dépôt Docker hosted (à créer dans l'UI : A09)
+    volumes: [nexus-data:/nexus-data]
+
+  sonarqube:
+    image: ${SONARQUBE_IMAGE:-sonarqube:community}
+    ports: ["9000:9000"]
+    volumes: [sonar-data:/opt/sonarqube/data]
+
+  # GitLab CE : dépôt du projet + pipelines (A08). ~4 Go de RAM, 3-5 min au
+  # premier démarrage. UI sur http://localhost:8929, SSH sur 2224.
+  gitlab:
+    image: ${GITLAB_IMAGE:-gitlab/gitlab-ce:17.5.2-ce.0}
+    hostname: gitlab.local
+    shm_size: "256m"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:8929'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2224
+        gitlab_rails['registry_enabled'] = false
+        prometheus_monitoring['enable'] = false
+        gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD:-changeme123}'
+    ports:
+      - "8929:8929"
+      - "2224:22"
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+
+  # Runner partagé pour A08, sur le moteur Docker de l'hôte (pas celui
+  # d'hote-cible). À enregistrer une fois : lab/enregistrer-runner-partage.sh
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    depends_on: [gitlab]
+    volumes:
+      - gitlab-runner-config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # Jenkins pour A11 : JDK 21 + Maven dans l'image, Docker CLI pour
+  # agent { docker { image '...' } } via le socket monté. Voir lab/jenkins/.
+  jenkins:
+    build: ./lab/jenkins
+    environment:
+      JAVA_OPTS: -Djenkins.install.runSetupWizard=false
+    ports: ["8090:8080"]
+    volumes:
+      - jenkins-data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # Hôte Docker du « client » : le runner GitLab de l'atelier A12 s'y
+  # enregistre. Registre Nexus déclaré en non sécurisé (pas de TLS en lab).
+  hote-cible:
+    image: docker:dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["--insecure-registry=nexus:8083"]
+    ports: ["8080:8080"]
+
+volumes:
+  pgdata:
+  nexus-data:
+  sonar-data:
+  gitlab-config:
+  gitlab-logs:
+  gitlab-data:
+  gitlab-runner-config:
+  jenkins-data:
