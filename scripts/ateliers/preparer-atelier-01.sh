@@ -10,7 +10,7 @@
 # script). Ce doit être la version « de départ » : sans le builder, la couche JPA, REST Assured ni
 # Cucumber, que les ateliers 5, 6, 13 et 14 vous font écrire. Avec les solutions déjà présentes, le
 # code que ce script écrit sur la branche feature entrerait en conflit avec elles.
-# Côté formateur : produire cette version avec 00-pilotage/exporter-projet-depart.sh.
+# Côté formateur : produire cette version avec scripts/exporter-projet-depart.sh.
 set -euo pipefail
 
 ici="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
